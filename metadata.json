@@ -1,0 +1,6 @@
+{
+  "name": "Aplikasi Penilaian Pramuka Garuda",
+  "description": "Sistem penilaian pencapaian Pramuka Garuda format resmi Kwartir Cabang Banyumas dengan manajemen peserta, penguji, kelompok, dan ekspor laporan PDF/Excel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
