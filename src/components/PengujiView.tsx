@@ -23,11 +23,14 @@ import {
   parsePengujiFile,
   ParsePengujiResult,
 } from '../utils/dataIo';
+import { AppSettings } from '../types';
+import { extractGolonganName } from '../utils/golongan';
 
 interface PengujiViewProps {
   pengujiList: Penguji[];
   penilaianMap: Record<string, PenilaianPeserta>;
   currentUser?: AuthUser | null;
+  settings?: AppSettings;
   onAddPenguji: (penguji: Penguji) => void;
   onUpdatePenguji: (penguji: Penguji) => void;
   onDeletePenguji: (id: string) => void;
@@ -38,6 +41,7 @@ export const PengujiView: React.FC<PengujiViewProps> = ({
   pengujiList,
   penilaianMap,
   currentUser,
+  settings,
   onAddPenguji,
   onUpdatePenguji,
   onDeletePenguji,
@@ -68,8 +72,9 @@ export const PengujiView: React.FC<PengujiViewProps> = ({
     setEditingPenguji(null);
     setFormNama('');
     setFormNipNta(`NTA. 11.02.00.${(pengujiList.length + 1).toString().padStart(3, '0')}`);
-    setFormJabatan('Andalan Cabang Urusan Penggalang');
-    setFormPangkalan('Kwarcab Banyumas');
+    const gol = extractGolonganName(settings?.golongan);
+    setFormJabatan(`Andalan Cabang Urusan ${gol}`);
+    setFormPangkalan(settings?.kwartirCabang || 'Kwarcab Banyumas');
     setFormHp('');
     setIsModalOpen(true);
   };

@@ -33,8 +33,10 @@ import {
   exportSemuaTimRekapToExcel,
   ParseRekapTimResult,
 } from '../utils/dataIo';
+import { extractGolonganName } from '../utils/golongan';
 import { DEFAULT_SETTINGS } from '../data/initialData';
 import { KopSurat } from './KopSurat';
+import { formatTanggalIndonesia } from '../utils/formatDate';
 
 interface KelompokViewProps {
   kelompokList: Kelompok[];
@@ -555,7 +557,9 @@ export const KelompokView: React.FC<KelompokViewProps> = ({
                                 : 'bg-blue-100 text-blue-800'
                             }`}
                           >
-                            {tim.jenisKelamin || 'Satuan Penggalang'}
+                            {tim.jenisKelamin
+                              ? `${tim.jenisKelamin} (${extractGolonganName(settings.golongan)})`
+                              : `Satuan ${extractGolonganName(settings.golongan)}`}
                           </span>
                         </div>
 
@@ -921,8 +925,8 @@ export const KelompokView: React.FC<KelompokViewProps> = ({
                     onChange={(e) => setFormJK(e.target.value as 'Putra' | 'Putri')}
                     className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3 py-2 text-xs sm:text-sm focus:ring-2 focus:ring-amber-500"
                   >
-                    <option value="Putra">Putra (Penggalang)</option>
-                    <option value="Putri">Putri (Penggalang)</option>
+                    <option value="Putra">Putra ({extractGolonganName(settings.golongan)})</option>
+                    <option value="Putri">Putri ({extractGolonganName(settings.golongan)})</option>
                   </select>
                 </div>
 
@@ -1421,7 +1425,7 @@ export const KelompokView: React.FC<KelompokViewProps> = ({
                 </div>
                 <div>
                   <p className="text-stone-500 text-[11px]">
-                    {settings.tempat}, {new Date().toLocaleDateString('id-ID')}
+                    {settings.tempat}, {formatTanggalIndonesia()}
                   </p>
                   <p className="font-bold text-stone-900 mt-1">Tim Penguji Pramuka Garuda</p>
                   <div className="h-16" />

@@ -31,7 +31,7 @@ export interface Peserta {
   gudep?: string; // e.g. 02.101 - 02.102
   kelompokId?: string; // ID of Kelompok/Regu
   golongan: 'Penggalang' | 'Siaga' | 'Penegak' | 'Pandega';
-  tingkatTKU: 'Ramu' | 'Rakit' | 'Terap' | 'Bantara' | 'Laksana' | 'Mula' | 'Bantu' | 'Tata';
+  tingkatTKU: 'Ramu' | 'Rakit' | 'Terap' | 'Bantara' | 'Laksana' | 'Mula' | 'Bantu' | 'Tata' | 'Pandega';
   kontakHp?: string;
   namaPembina?: string;
 }

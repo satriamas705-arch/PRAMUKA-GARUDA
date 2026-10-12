@@ -36,6 +36,7 @@ import { LembarPenilaianPrint } from './components/LembarPenilaianPrint';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginForm } from './components/LoginForm';
 import { LogOut, ShieldAlert } from 'lucide-react';
+import { extractGolonganName, getDefaultTKUForGolongan } from './utils/golongan';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
@@ -275,6 +276,36 @@ export default function App() {
     setIsSettingsOpen(false);
   };
 
+  const handleSaveSettings = (newSettings: AppSettings) => {
+    const prevGolonganShort = extractGolonganName(settings.golongan);
+    const newGolonganShort = extractGolonganName(newSettings.golongan);
+    setSettings(newSettings);
+
+    // Otomatis sesuaikan seluruh peserta jika golongan di pengaturan diubah
+    if (prevGolonganShort !== newGolonganShort) {
+      const targetTku = getDefaultTKUForGolongan(newSettings.golongan);
+      setPesertaList((prev) =>
+        prev.map((p) => ({
+          ...p,
+          golongan: newGolonganShort,
+          tingkatTKU: targetTku,
+        }))
+      );
+    }
+  };
+
+  const handleSyncAllPesertaToSettings = () => {
+    const targetGol = extractGolonganName(settings.golongan);
+    const targetTku = getDefaultTKUForGolongan(settings.golongan);
+    setPesertaList((prev) =>
+      prev.map((p) => ({
+        ...p,
+        golongan: targetGol,
+        tingkatTKU: targetTku,
+      }))
+    );
+  };
+
   // If user is not logged in, show Login Screen
   if (!currentUser) {
     return (
@@ -392,10 +423,12 @@ export default function App() {
             pesertaList={pesertaList}
             kelompokList={kelompokList}
             penilaianMap={penilaianMap}
+            settings={settings}
             onAddPeserta={handleAddPeserta}
             onUpdatePeserta={handleUpdatePeserta}
             onDeletePeserta={handleDeletePeserta}
             onBatchImportPeserta={handleBatchImportPeserta}
+            onSyncAllGolongan={handleSyncAllPesertaToSettings}
             onNavigateToNilai={handleNavigateToNilai}
             onOpenPrintPreview={handleOpenPrintPreview}
           />
@@ -406,6 +439,7 @@ export default function App() {
             pengujiList={pengujiList}
             penilaianMap={penilaianMap}
             currentUser={currentUser}
+            settings={settings}
             onAddPenguji={handleAddPenguji}
             onUpdatePenguji={handleUpdatePenguji}
             onDeletePenguji={handleDeletePenguji}
@@ -500,7 +534,7 @@ export default function App() {
       {isSettingsOpen && currentUser.role === 'admin' && (
         <SettingsModal
           settings={settings}
-          onSaveSettings={setSettings}
+          onSaveSettings={handleSaveSettings}
           onResetDefault={handleResetData}
           onClose={() => setIsSettingsOpen(false)}
         />

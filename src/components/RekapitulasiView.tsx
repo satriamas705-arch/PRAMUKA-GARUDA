@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { exportRekapitulasiToExcel, exportLembarIndividuToExcel } from '../utils/exportExcel';
 import { exportElementToPdf } from '../utils/generatePdf';
+import { formatTanggalIndonesia } from '../utils/formatDate';
 import { PramukaBadge } from './PramukaBadge';
 import { OfficialScoutStamp } from './OfficialScoutStamp';
 import { KopSurat } from './KopSurat';
@@ -505,7 +506,7 @@ export const RekapitulasiView: React.FC<RekapitulasiViewProps> = ({
 
             <div className="relative text-right">
               <div className="text-xs text-stone-700">
-                {settings.tempat}, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                {settings.tempat}, {formatTanggalIndonesia()}
               </div>
               <div className="font-extrabold text-stone-900 mt-0.5">
                 Ketua Tim Penguji Pramuka Garuda,

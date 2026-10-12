@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { Peserta, Penguji, Kelompok, PenilaianPeserta, AppSettings } from '../types';
+import { formatTanggalIndonesia } from './formatDate';
 
 interface RekapRowData {
   peserta: Peserta;
@@ -93,7 +94,7 @@ export function exportRekapitulasiToExcel(
     [],
     ['', '', '', '', '', '', '', '', '', '', '', '', ''],
     ['', '', '', '', '', '', '', '', '', '', `Ditetapkan di: ${settings.tempat}`, '', ''],
-    ['', '', '', '', '', '', '', '', '', '', `Tanggal: ${new Date().toLocaleDateString('id-ID')}`, '', ''],
+    ['', '', '', '', '', '', '', '', '', '', `Tanggal: ${formatTanggalIndonesia()}`, '', ''],
     ['', '', '', '', '', '', '', '', '', '', 'Tim Penguji Pramuka Garuda', '', ''],
   ];
 
@@ -127,12 +128,19 @@ export function exportLembarIndividuToExcel(
   peserta: Peserta,
   penilaian: PenilaianPeserta,
   penguji: Penguji | undefined,
-  settings: AppSettings
+  settings: AppSettings,
+  customTempat?: string,
+  customTanggal?: string
 ) {
   const adminYaCount = penilaian.administrasi.filter((a) => a.tersedia).length;
   const totalSkorWawancara = penilaian.wawancara.reduce((sum, w) => sum + (w.poin || 0), 0);
   const persentase = Number(((totalSkorWawancara / 55) * 100).toFixed(2));
   const statusKelulusan = persentase >= 80 ? 'LULUS' : 'BELUM LULUS';
+
+  const tempatUjianFinal = customTempat || settings.tempat || 'Kemranjen, Banyumas';
+  const tanggalUjianFinal = formatTanggalIndonesia(
+    customTanggal || penilaian.tanggalPenilaian || settings.tanggalDefault
+  );
 
   const wb = XLSX.utils.book_new();
 
@@ -148,7 +156,8 @@ export function exportLembarIndividuToExcel(
     ['Gugus Depan', `: ${peserta.gudep || '-'}`],
     ['Jenis Kelamin', `: ${peserta.jenisKelamin === 'L' ? 'Laki-laki' : 'Perempuan'}`],
     ['Penguji', `: ${penguji?.nama || '-'}`],
-    ['Tanggal Ujian', `: ${penilaian.tanggalPenilaian}`],
+    ['Tempat Ujian', `: ${tempatUjianFinal}`],
+    ['Tanggal Ujian', `: ${tanggalUjianFinal}`],
     [],
     ['A. ADMINISTRASI'],
     ['NO', 'PENCAPAIAN', 'KETERSEDIAAN DATA', 'KETERANGAN / CATATAN'],
@@ -192,8 +201,8 @@ export function exportLembarIndividuToExcel(
     sheetContent.push(['Catatan Umum Penguji', penilaian.catatanUmum]);
   }
   sheetContent.push([]);
-  sheetContent.push(['', '', `${settings.tempat}, ${penilaian.tanggalPenilaian || settings.tahun}`]);
-  sheetContent.push(['', '', 'Tim Penguji:']);
+  sheetContent.push(['', '', `${tempatUjianFinal}, ${tanggalUjianFinal}`]);
+  sheetContent.push(['', '', 'Tim Penguji Pramuka Garuda:']);
   sheetContent.push([]);
   sheetContent.push([]);
   sheetContent.push(['', '', penguji?.nama || '(....................................)']);

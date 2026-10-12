@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Peserta, Kelompok, PenilaianPeserta } from '../types';
+import { Peserta, Kelompok, PenilaianPeserta, AppSettings } from '../types';
 import {
   UserPlus,
   Search,
@@ -21,6 +21,8 @@ import {
   X,
   Check,
   RotateCcw,
+  Sparkles,
+  Layers,
 } from 'lucide-react';
 import {
   exportPesertaToExcel,
@@ -28,15 +30,23 @@ import {
   parsePesertaFile,
   ParsePesertaResult,
 } from '../utils/dataIo';
+import {
+  extractGolonganName,
+  getDefaultTKUForGolongan,
+  getTKUOptionsForGolongan,
+  GolonganType,
+} from '../utils/golongan';
 
 interface PesertaViewProps {
   pesertaList: Peserta[];
   kelompokList: Kelompok[];
   penilaianMap: Record<string, PenilaianPeserta>;
+  settings: AppSettings;
   onAddPeserta: (peserta: Peserta) => void;
   onUpdatePeserta: (peserta: Peserta) => void;
   onDeletePeserta: (id: string) => void;
   onBatchImportPeserta?: (newList: Peserta[], mode: 'merge' | 'replace') => void;
+  onSyncAllGolongan?: () => void;
   onNavigateToNilai: (pesertaId: string) => void;
   onOpenPrintPreview: (pesertaId: string) => void;
 }
@@ -45,10 +55,12 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
   pesertaList,
   kelompokList,
   penilaianMap,
+  settings,
   onAddPeserta,
   onUpdatePeserta,
   onDeletePeserta,
   onBatchImportPeserta,
+  onSyncAllGolongan,
   onNavigateToNilai,
   onOpenPrintPreview,
 }) => {
@@ -77,22 +89,27 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
   const [formPangkalan, setFormPangkalan] = useState('');
   const [formGudep, setFormGudep] = useState('');
   const [formKelompokId, setFormKelompokId] = useState('');
-  const [formGolongan, setFormGolongan] = useState<'Penggalang' | 'Siaga' | 'Penegak' | 'Pandega'>('Penggalang');
-  const [formTingkatTKU, setFormTingkatTKU] = useState<'Ramu' | 'Rakit' | 'Terap' | 'Bantara' | 'Laksana' | 'Mula' | 'Bantu' | 'Tata'>('Terap');
+  const [formGolongan, setFormGolongan] = useState<Peserta['golongan']>(
+    extractGolonganName(settings.golongan)
+  );
+  const [formTingkatTKU, setFormTingkatTKU] = useState<Peserta['tingkatTKU']>(
+    getDefaultTKUForGolongan(settings.golongan)
+  );
   const [formHp, setFormHp] = useState('');
   const [formPembina, setFormPembina] = useState('');
 
   const openAddModal = () => {
     setEditingPeserta(null);
     const nextNum = (pesertaList.length + 1).toString().padStart(2, '0');
-    setFormNomor(`PG-${nextNum}/BMS/2026`);
+    setFormNomor(`PG-${nextNum}/BMS/${settings.tahun || '2026'}`);
     setFormNama('');
     setFormJK('L');
-    setFormPangkalan('SMP Negeri 1 Purwokerto');
+    setFormPangkalan(settings.kwartirCabang ? `${settings.kwartirCabang}` : 'SMP Negeri 1 Purwokerto');
     setFormGudep('02.001 - 02.002');
     setFormKelompokId(kelompokList[0]?.id || '');
-    setFormGolongan('Penggalang');
-    setFormTingkatTKU('Terap');
+    const activeGol = extractGolonganName(settings.golongan);
+    setFormGolongan(activeGol);
+    setFormTingkatTKU(getDefaultTKUForGolongan(settings.golongan));
     setFormHp('');
     setFormPembina('');
     setIsModalOpen(true);
@@ -106,8 +123,9 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
     setFormPangkalan(p.pangkalan);
     setFormGudep(p.gudep || '');
     setFormKelompokId(p.kelompokId || '');
-    setFormGolongan(p.golongan);
-    setFormTingkatTKU(p.tingkatTKU);
+    const currentGol = p.golongan || extractGolonganName(settings.golongan);
+    setFormGolongan(currentGol);
+    setFormTingkatTKU(p.tingkatTKU || getDefaultTKUForGolongan(currentGol));
     setFormHp(p.kontakHp || '');
     setFormPembina(p.namaPembina || '');
     setIsModalOpen(true);
@@ -188,7 +206,7 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
     setIsParsing(true);
     setParseResult(null);
     try {
-      const res = await parsePesertaFile(file, kelompokList);
+      const res = await parsePesertaFile(file, kelompokList, settings.golongan);
       setParseResult(res);
     } catch (err: any) {
       setParseResult({
@@ -222,6 +240,30 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const configuredGolongan = extractGolonganName(settings.golongan);
+  const mismatchedPeserta = pesertaList.filter(
+    (p) => (p.golongan || 'Penggalang') !== configuredGolongan
+  );
+  const mismatchedCount = mismatchedPeserta.length;
+
+  const handleSyncAllToSettings = () => {
+    if (onSyncAllGolongan) {
+      onSyncAllGolongan();
+    } else if (onBatchImportPeserta) {
+      const targetTku = getDefaultTKUForGolongan(settings.golongan);
+      const updated = pesertaList.map((p) => ({
+        ...p,
+        golongan: configuredGolongan,
+        tingkatTKU: (p.golongan || 'Penggalang') !== configuredGolongan ? targetTku : p.tingkatTKU,
+      }));
+      onBatchImportPeserta(updated, 'replace');
+    }
+    setImportNotification(
+      `Semua peserta (${pesertaList.length} peserta) berhasil disesuaikan ke ${settings.golongan}.`
+    );
+    setTimeout(() => setImportNotification(null), 5000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Import / Action Notification */}
@@ -241,14 +283,46 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
         </div>
       )}
 
+      {/* Alert Penyesuaian Golongan jika ada ketidaksesuaian dengan pengaturan */}
+      {mismatchedCount > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-100 text-amber-800 shrink-0">
+              <Sparkles className="w-5 h-5 text-amber-700" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-black text-amber-950">
+                Penyesuaian Golongan Sesuai Pengaturan: {settings.golongan}
+              </div>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Terdapat <strong>{mismatchedCount} peserta</strong> yang golongannya belum disesuaikan ke <strong>{configuredGolongan}</strong>.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleSyncAllToSettings}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-extrabold text-xs rounded-xl shadow-md shadow-amber-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all self-end sm:self-auto shrink-0"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Sesuaikan Semua Peserta ({mismatchedCount})</span>
+          </button>
+        </div>
+      )}
+
       {/* Top action bar */}
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-stone-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-black text-stone-900 tracking-wide uppercase">
-            Data Peserta Uji Garuda
-          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-black text-stone-900 tracking-wide uppercase">
+              Data Peserta Uji Garuda
+            </h2>
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+              {settings.golongan}
+            </span>
+          </div>
           <p className="text-xs text-stone-500 mt-0.5">
-            Kelola data calon Pramuka Garuda Banyumas (Total: {pesertaList.length} Peserta)
+            Kelola data calon Pramuka Garuda ({settings.kwartirCabang}) • Total: {pesertaList.length} Peserta
           </p>
         </div>
 
@@ -385,10 +459,14 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
                       </td>
                       <td className="py-3.5 px-3">
                         <div className="font-extrabold text-stone-900">{p.nama}</div>
-                        <div className="flex items-center gap-2 text-[11px] text-stone-500 mt-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-stone-500 mt-0.5">
                           <span>{p.jenisKelamin === 'L' ? 'Putra (L)' : 'Putri (P)'}</span>
                           <span>•</span>
-                          <span>TKU: {p.tingkatTKU}</span>
+                          <span className="font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                            {p.golongan || configuredGolongan}
+                          </span>
+                          <span>•</span>
+                          <span className="font-semibold text-stone-700">TKU: {p.tingkatTKU}</span>
                         </div>
                       </td>
                       <td className="py-3.5 px-3">
@@ -571,6 +649,45 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-stone-700 mb-1">
+                    Golongan Pramuka *
+                  </label>
+                  <select
+                    value={formGolongan}
+                    onChange={(e) => {
+                      const newG = e.target.value as any;
+                      setFormGolongan(newG);
+                      setFormTingkatTKU(getDefaultTKUForGolongan(newG));
+                    }}
+                    className="w-full bg-stone-50 border border-stone-300 rounded-lg px-3 py-1.5 text-xs sm:text-sm focus:ring-1 focus:ring-amber-500 font-bold text-amber-950"
+                  >
+                    <option value="Siaga">Siaga</option>
+                    <option value="Penggalang">Penggalang</option>
+                    <option value="Penegak">Penegak</option>
+                    <option value="Pandega">Pandega</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                    Tingkat TKU Terakhir *
+                  </label>
+                  <select
+                    value={formTingkatTKU}
+                    onChange={(e) => setFormTingkatTKU(e.target.value as any)}
+                    className="w-full bg-stone-50 border border-stone-300 rounded-lg px-3 py-1.5 text-xs sm:text-sm focus:ring-1 focus:ring-amber-500 font-semibold"
+                  >
+                    {getTKUOptionsForGolongan(formGolongan).map((tku) => (
+                      <option key={tku.value} value={tku.value}>
+                        {tku.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">
                     Regu / Kelompok
                   </label>
                   <select
@@ -589,26 +706,6 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-stone-700 mb-1">
-                    Tingkat TKU Terakhir
-                  </label>
-                  <select
-                    value={formTingkatTKU}
-                    onChange={(e) => setFormTingkatTKU(e.target.value as any)}
-                    className="w-full bg-stone-50 border border-stone-300 rounded-lg px-3 py-1.5 text-xs sm:text-sm focus:ring-1 focus:ring-amber-500 font-semibold"
-                  >
-                    <option value="Terap">Penggalang Terap (Syarat Garuda)</option>
-                    <option value="Rakit">Penggalang Rakit</option>
-                    <option value="Ramu">Penggalang Ramu</option>
-                    <option value="Tata">Siaga Tata</option>
-                    <option value="Laksana">Penegak Laksana</option>
-                    <option value="Bantara">Penegak Bantara</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
                     Kontak HP / WA Peserta
                   </label>
                   <input
@@ -619,19 +716,19 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
                     className="w-full bg-stone-50 border border-stone-300 rounded-lg px-3 py-1.5 text-xs sm:text-sm focus:ring-1 focus:ring-amber-500"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
-                    Pembina Pendamping
-                  </label>
-                  <input
-                    type="text"
-                    value={formPembina}
-                    onChange={(e) => setFormPembina(e.target.value)}
-                    placeholder="Nama Pembina Gudep"
-                    className="w-full bg-stone-50 border border-stone-300 rounded-lg px-3 py-1.5 text-xs sm:text-sm focus:ring-1 focus:ring-amber-500"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  Pembina Pendamping
+                </label>
+                <input
+                  type="text"
+                  value={formPembina}
+                  onChange={(e) => setFormPembina(e.target.value)}
+                  placeholder="Nama Pembina Gudep"
+                  className="w-full bg-stone-50 border border-stone-300 rounded-lg px-3 py-1.5 text-xs sm:text-sm focus:ring-1 focus:ring-amber-500"
+                />
               </div>
 
               <div className="mt-6 pt-3 border-t border-stone-200 flex items-center justify-end gap-2">
@@ -768,7 +865,7 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
 
                     <button
                       type="button"
-                      onClick={downloadPesertaTemplate}
+                      onClick={() => downloadPesertaTemplate(settings.golongan)}
                       className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
@@ -953,7 +1050,7 @@ export const PesertaView: React.FC<PesertaViewProps> = ({
                   <div className="pt-2 text-center">
                     <button
                       type="button"
-                      onClick={downloadPesertaTemplate}
+                      onClick={() => downloadPesertaTemplate(settings.golongan)}
                       className="text-xs font-bold text-amber-700 hover:text-amber-900 flex items-center justify-center gap-1 mx-auto"
                     >
                       <Download className="w-3.5 h-3.5" />

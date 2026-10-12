@@ -4,6 +4,7 @@ import {
   DEFAULT_ADMINISTRASI_TEMPLATE,
   DEFAULT_WAWANCARA_TEMPLATE,
 } from '../data/initialData';
+import { formatTanggalIndonesia } from './formatDate';
 
 /**
  * Normalizes header string to match keys flexibly
@@ -15,6 +16,8 @@ function normalizeKey(str: string): string {
 // ==========================================
 // 1. DATA PESERTA (EXCEL / CSV IMPORT-EXPORT)
 // ==========================================
+
+import { extractGolonganName, getDefaultTKUForGolongan } from './golongan';
 
 export const PESERTA_EXCEL_HEADERS = [
   'NO. PESERTA',
@@ -29,7 +32,9 @@ export const PESERTA_EXCEL_HEADERS = [
   'NAMA PEMBINA',
 ];
 
-export function downloadPesertaTemplate() {
+export function downloadPesertaTemplate(golonganSetting?: string) {
+  const g = extractGolonganName(golonganSetting);
+  const defaultTku = getDefaultTKUForGolongan(golonganSetting);
   const wb = XLSX.utils.book_new();
 
   // Sample template rows
@@ -42,8 +47,8 @@ export function downloadPesertaTemplate() {
       'SMP Negeri 1 Purwokerto',
       '02.001 - 02.002',
       'Regu Garuda',
-      'Penggalang',
-      'Terap',
+      g,
+      defaultTku,
       '081234567890',
       'Kak Kak Budi Santoso',
     ],
@@ -54,8 +59,8 @@ export function downloadPesertaTemplate() {
       'SMP Negeri 2 Sokaraja',
       '05.011 - 05.012',
       'Regu Melati',
-      'Penggalang',
-      'Terap',
+      g,
+      defaultTku,
       '082345678901',
       'Kak Ratna Dewi',
     ],
@@ -158,8 +163,11 @@ export interface ParsePesertaResult {
 
 export async function parsePesertaFile(
   file: File,
-  kelompokList: Kelompok[]
+  kelompokList: Kelompok[],
+  defaultGolonganSetting?: string
 ): Promise<ParsePesertaResult> {
+  const fallbackGolongan = extractGolonganName(defaultGolonganSetting);
+  const fallbackTku = getDefaultTKUForGolongan(defaultGolonganSetting);
   const buffer = await file.arrayBuffer();
   const wb = XLSX.read(buffer, { type: 'array' });
   const firstSheetName = wb.SheetNames[0];
@@ -241,23 +249,23 @@ export async function parsePesertaFile(
 
     const golonganRaw = (
       normalizedRow['golongan'] ||
-      'Penggalang'
+      fallbackGolongan
     ).toString().trim();
     const validGolongan: Peserta['golongan'] =
       ['Penggalang', 'Siaga', 'Penegak', 'Pandega'].find(
         (g) => g.toLowerCase() === golonganRaw.toLowerCase()
-      ) as any || 'Penggalang';
+      ) as any || fallbackGolongan;
 
     const tingkatRaw = (
       normalizedRow['tingkattku'] ||
       normalizedRow['tingkat'] ||
       normalizedRow['tku'] ||
-      'Terap'
+      fallbackTku
     ).toString().trim();
     const validTingkat: Peserta['tingkatTKU'] =
-      ['Ramu', 'Rakit', 'Terap', 'Bantara', 'Laksana', 'Mula', 'Bantu', 'Tata'].find(
+      ['Ramu', 'Rakit', 'Terap', 'Bantara', 'Laksana', 'Mula', 'Bantu', 'Tata', 'Pandega'].find(
         (t) => t.toLowerCase() === tingkatRaw.toLowerCase()
-      ) as any || 'Terap';
+      ) as any || fallbackTku;
 
     const kontakHp = (
       normalizedRow['nohpwa'] ||
@@ -584,7 +592,7 @@ export function exportRekapTimToExcel(
     [],
     [],
     ['', '', '', '', '', '', '', '', '', '', `Ditetapkan di: ${settings.tempat}`],
-    ['', '', '', '', '', '', '', '', '', '', `Tanggal: ${new Date().toLocaleDateString('id-ID')}`],
+    ['', '', '', '', '', '', '', '', '', '', `Tanggal: ${formatTanggalIndonesia()}`],
     ['', '', '', '', '', '', '', '', '', '', 'Tim Penguji Pramuka Garuda:'],
     ['', '', '', '', '', '', '', '', '', '', tim.namaPenguji || 'Tim Penilai'],
   ];

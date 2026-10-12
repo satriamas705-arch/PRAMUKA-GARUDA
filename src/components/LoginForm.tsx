@@ -64,16 +64,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({
     }
   };
 
-  const handleQuickLogin = (userStr: string, passStr: string) => {
-    setUsername(userStr);
-    setPassword(passStr);
-    setErrorMessage(null);
-    const result = attemptLogin(userStr, passStr, pengujiList);
-    if (result.success && result.user) {
-      onLoginSuccess(result.user);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-stone-900 flex items-center justify-center p-4 sm:p-6 lg:p-10 relative overflow-hidden font-sans">
       {/* Decorative scout badge background watermark */}
@@ -122,12 +112,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({
             </p>
 
             <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-stone-300 pt-1">
-              <span className="bg-stone-800/80 px-2.5 py-1 rounded-md border border-stone-700/60">
+              <span className="bg-stone-800/80 px-2.5 py-1 rounded-md border border-stone-700/60 font-medium">
                 Tahun {settings.tahun}
               </span>
               <span>•</span>
-              <span className="bg-stone-800/80 px-2.5 py-1 rounded-md border border-stone-700/60">
-                Golongan Penggalang
+              <span className="bg-stone-800/80 px-2.5 py-1 rounded-md border border-stone-700/60 font-semibold text-amber-300">
+                {settings.golongan}
               </span>
             </div>
 
@@ -223,9 +213,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                   <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider">
                     Password
                   </label>
-                  <span className="text-[11px] text-stone-500">
-                    {activeTab === 'admin' ? 'admin' : 'nama penguji'}
-                  </span>
+                  {activeTab === 'penguji' && (
+                    <span className="text-[11px] text-stone-500">
+                      nama penguji
+                    </span>
+                  )}
                 </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
@@ -238,7 +230,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={
                       activeTab === 'admin'
-                        ? 'admin'
+                        ? '••••••••'
                         : 'nama penguji huruf kecil'
                     }
                     className="w-full pl-10 pr-10 py-2.5 bg-stone-50 border border-stone-300 rounded-xl text-sm font-semibold text-stone-900 focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-none transition-all font-mono"
@@ -275,27 +267,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({
               </button>
             </form>
 
-            {/* Quick Access / Petunjuk Login Sesuai Format Permintaan */}
-            <div className="mt-5 pt-4 border-t border-stone-200 space-y-3">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1">
-                <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                <span>Petunjuk Akses Akun:</span>
-              </div>
-
-              {activeTab === 'admin' ? (
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 space-y-1">
-                  <div className="font-extrabold flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-amber-700" />
-                    <span>Akses Administrator</span>
-                  </div>
-                  <div className="text-[11px] text-stone-700">
-                    Username: <code className="bg-amber-100 font-bold px-1 rounded">admin</code> • Password: <code className="bg-amber-100 font-bold px-1 rounded">admin</code>
-                  </div>
-                  <div className="text-[10px] text-stone-500 italic pt-1">
-                    * Akses penuh ke seluruh menu (Data Peserta, Penguji, Tim Penilai, Penilaian, Rekap, dan Pengaturan).
-                  </div>
+            {/* Petunjuk Akses Akun (hanya untuk Penguji, disembunyikan untuk Admin) */}
+            {activeTab === 'penguji' && (
+              <div className="mt-5 pt-4 border-t border-stone-200 space-y-3">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1">
+                  <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Petunjuk Akses Penguji:</span>
                 </div>
-              ) : (
+
                 <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 space-y-1.5">
                   <div className="font-extrabold flex items-center gap-1.5">
                     <Award className="w-4 h-4 text-amber-700" />
@@ -307,31 +286,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                   <div className="text-[11px] text-stone-700">
                     Password: <span className="font-bold">nama penguji huruf kecil dan disambung</span>
                   </div>
-
-                  <div className="pt-2 border-t border-amber-200/60">
-                    <div className="text-[10px] font-bold text-stone-600 uppercase mb-1">
-                      Klik Cepat Sebagai Penguji:
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
-                      {pengujiList.map((p) => {
-                        const candidate = getPengujiPasswordCandidates(p.nama)[0] || '';
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => handleQuickLogin('penguji', candidate)}
-                            className="px-2 py-1 bg-white hover:bg-amber-100 text-[10px] font-bold text-stone-800 rounded-md border border-amber-300 transition-colors"
-                            title={`Login sebagai ${p.nama} (pass: ${candidate})`}
-                          >
-                            {p.nama.split(',')[0]} ({candidate})
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Footer info di bawah form */}

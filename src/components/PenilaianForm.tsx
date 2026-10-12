@@ -26,6 +26,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { exportLembarIndividuToExcel } from '../utils/exportExcel';
+import { extractGolonganName, formatPencapaianForGolongan } from '../utils/golongan';
 
 interface PenilaianFormProps {
   pesertaList: Peserta[];
@@ -245,7 +246,7 @@ export const PenilaianForm: React.FC<PenilaianFormProps> = ({
 
               <div className="flex items-center gap-2 text-xs">
                 <span className="px-2.5 py-1 bg-amber-100 text-amber-800 font-bold rounded-lg">
-                  {currentPeserta.golongan}
+                  {currentPeserta.golongan || extractGolonganName(settings.golongan)}
                 </span>
                 <span className="px-2.5 py-1 bg-stone-100 text-stone-700 font-medium rounded-lg">
                   TKU: {currentPeserta.tingkatTKU}
@@ -495,7 +496,7 @@ export const PenilaianForm: React.FC<PenilaianFormProps> = ({
                         {item.id}
                       </td>
                       <td className="py-3 px-3 text-stone-900 font-medium leading-relaxed align-top">
-                        {item.pencapaian}
+                        {formatPencapaianForGolongan(item.pencapaian, settings.golongan)}
                       </td>
                       <td className="py-3 px-3 text-center align-top">
                         <div className="inline-flex rounded-xl p-1 bg-stone-200/80 border border-stone-300">
@@ -614,7 +615,7 @@ export const PenilaianForm: React.FC<PenilaianFormProps> = ({
                         {item.id}
                       </td>
                       <td className="py-3 px-3 text-stone-900 font-medium leading-relaxed align-top">
-                        {item.pencapaian}
+                        {formatPencapaianForGolongan(item.pencapaian, settings.golongan)}
                       </td>
                       <td className="py-2 px-3 text-center align-top">
                         <div className="inline-flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-300">

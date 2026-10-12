@@ -478,6 +478,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <option value="GOLONGAN PENEGAK">GOLONGAN PENEGAK</option>
                     <option value="GOLONGAN PANDEGA">GOLONGAN PANDEGA</option>
                   </select>
+                  <p className="text-[11px] text-amber-800 font-medium mt-1 leading-snug">
+                    Golongan ini otomatis menyesuaikan seluruh data peserta, opsi TKU, instrumen penilaian, dan formulir cetak resmi.
+                  </p>
                 </div>
 
                 <div>
