@@ -47,9 +47,9 @@ export async function checkDriveFolderAccess(
           accessible: false,
           canAddChildren: false,
           canEdit: false,
-          folderName: 'Folder Target',
+          folderName: 'Folder Bersama',
           message:
-            'Folder belum dibagikan dengan hak edit ke akun ini. Sinkronisasi akan tetap mencadangkan file ke Drive akun Anda.',
+            'Folder resmi dibagikan dengan mode Hanya Baca (Viewer). Sinkronisasi tetap membaca data dari sini dan mencadangkan data baru ke Drive Anda.',
         };
       }
       const errText = await res.text();
@@ -72,8 +72,8 @@ export async function checkDriveFolderAccess(
       canEdit,
       folderName: data.name || 'Folder Resmi',
       message: canAddChildren
-        ? 'Akses penuh: Berkas dapat dibaca dan disimpan langsung ke dalam folder resmi.'
-        : 'Akses terbatas (Viewer): Berkas akan dicadangkan ke Google Drive akun Anda.',
+        ? 'Akses penuh: Berkas dapat dibaca dan disimpan langsung ke dalam folder bersama resmi.'
+        : 'Akses membaca (Viewer): Berkas dibaca dari folder ini dan dicadangkan ke Google Drive akun Anda.',
     };
   } catch (err: any) {
     if (err.message?.includes('401')) throw err;
@@ -203,7 +203,7 @@ export async function listDriveBackupFiles(
 }
 
 /**
- * Baca isi file JSON dari Google Drive berdasarkan File ID
+ * Baca isi file JSON dari Google Drive berdasarkan File ID secara aman
  */
 export async function readDriveJsonFile<T = any>(
   accessToken: string,
@@ -226,13 +226,22 @@ export async function readDriveJsonFile<T = any>(
     throw new Error(`Gagal mengunduh data file dari Google Drive (${res.status}): ${errorText}`);
   }
 
-  return await res.json();
+  const rawText = await res.text();
+  if (!rawText || !rawText.trim()) {
+    return {} as T;
+  }
+
+  try {
+    return JSON.parse(rawText) as T;
+  } catch (parseErr) {
+    console.warn('File di Google Drive bukan JSON valid atau kosong, menggunakan objek kosong:', parseErr);
+    return {} as T;
+  }
 }
 
 /**
- * Upload file JSON baru ke Google Drive
- * Menggunakan proses 2 langkah yang tangguh (Create Metadata + Upload Content)
- * Jika penulisan ke folderId ditolak (karena folder view-only), otomatis disimpan ke Drive akun pengguna.
+ * Upload file JSON baru ke Google Drive menggunakan Multipart Upload atomik
+ * Tidak akan membuat file kosong jika gagal.
  */
 export async function uploadNewFileToDrive(
   accessToken: string,
@@ -241,77 +250,78 @@ export async function uploadNewFileToDrive(
   dataContent: any
 ): Promise<DriveFileInfo> {
   const fileData = JSON.stringify(dataContent, null, 2);
+  const boundary = '-------PG_SYNC_BOUNDARY_' + Math.random().toString(36).substring(2);
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
 
-  // Langkah 1: Buat berkas metadata di folder target
-  let metadata: any = {
+  const metadata: any = {
     name: fileName,
     mimeType: 'application/json',
-    parents: folderId ? [folderId] : undefined,
   };
+  if (folderId) {
+    metadata.parents = [folderId];
+  }
 
-  let createRes = await fetch(
-    'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,mimeType,modifiedTime,size,webViewLink,parents',
+  const multipartRequestBody =
+    delimiter +
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify(metadata) +
+    delimiter +
+    'Content-Type: application/json\r\n\r\n' +
+    fileData +
+    closeDelimiter;
+
+  let res = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,modifiedTime,size,webViewLink,parents',
     {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+        'Content-Type': `multipart/related; boundary=${boundary}`,
       },
-      body: JSON.stringify(metadata),
+      body: multipartRequestBody,
     }
   );
 
-  if (createRes.status === 401) {
+  if (res.status === 401) {
     throw new Error('Sesi Google Drive telah berakhir (401). Silakan hubungkan kembali akun Anda.');
   }
 
-  // Jika gagal menyimpan ke folder target (403 forbidden / 404 not found pada folder eksternal),
-  // simpan ke ruang Drive pengguna tanpa parent
-  if (!createRes.ok && (createRes.status === 403 || createRes.status === 404)) {
-    console.warn(`Penyimpanan ke folder ${folderId} ditolak (${createRes.status}), beralih ke Drive akun pengguna.`);
-    metadata = {
+  // Jika penulisan ke folderId ditolak (403 forbidden / 404 pada shared folder), simpan ke root Drive pengguna
+  if (!res.ok && (res.status === 403 || res.status === 404) && folderId) {
+    console.warn(`Penyimpanan ke folder ${folderId} ditolak (${res.status}), beralih ke Drive akun pengguna.`);
+    const rootMetadata = {
       name: fileName,
       mimeType: 'application/json',
     };
-    createRes = await fetch(
-      'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,mimeType,modifiedTime,size,webViewLink,parents',
+    const rootBody =
+      delimiter +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify(rootMetadata) +
+      delimiter +
+      'Content-Type: application/json\r\n\r\n' +
+      fileData +
+      closeDelimiter;
+
+    res = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,modifiedTime,size,webViewLink,parents',
       {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
+          'Content-Type': `multipart/related; boundary=${boundary}`,
         },
-        body: JSON.stringify(metadata),
+        body: rootBody,
       }
     );
   }
 
-  if (!createRes.ok) {
-    const errText = await createRes.text();
-    throw new Error(`Gagal membuat berkas baru di Google Drive (${createRes.status}): ${errText}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Gagal mengunggah file ke Google Drive (${res.status}): ${errorText}`);
   }
 
-  const createdFile: DriveFileInfo = await createRes.json();
-
-  // Langkah 2: Isi konten berkas JSON
-  const contentRes = await fetch(
-    `https://www.googleapis.com/upload/drive/v3/files/${createdFile.id}?uploadType=media&supportsAllDrives=true&fields=id,name,mimeType,modifiedTime,size,webViewLink,parents`,
-    {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: fileData,
-    }
-  );
-
-  if (!contentRes.ok) {
-    const errText = await contentRes.text();
-    throw new Error(`Gagal mengisi data berkas di Google Drive (${contentRes.status}): ${errText}`);
-  }
-
-  return await contentRes.json();
+  return await res.json();
 }
 
 /**

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Peserta,
   Penguji,
@@ -26,7 +26,6 @@ import {
   readDriveJsonFile,
   uploadNewFileToDrive,
   updateDriveFileContent,
-  deleteDriveFile,
 } from '../services/googleDriveService';
 import {
   AppSyncPayload,
@@ -46,7 +45,6 @@ import {
   AlertCircle,
   X,
   ShieldAlert,
-  ShieldCheck,
   UserCheck,
   LogOut,
   Clock,
@@ -54,7 +52,10 @@ import {
   FileCheck2,
   Trash2,
   Check,
-  Info,
+  Download,
+  Upload,
+  Layers,
+  ArrowUpRight,
 } from 'lucide-react';
 
 interface GoogleDriveSyncModalProps {
@@ -86,6 +87,9 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
   settings,
   onApplySyncData,
 }) => {
+  // Tab Mode: 'cloud' (Google Drive API) | 'file' (Berkas JSON Cadangan)
+  const [activeSyncTab, setActiveSyncTab] = useState<'cloud' | 'file'>('cloud');
+
   const [googleUser, setGoogleUser] = useState<any>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -107,7 +111,11 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
   const [confirmAdminDeletionOpen, setConfirmAdminDeletionOpen] = useState(false);
   const [confirmRestoreFile, setConfirmRestoreFile] = useState<DriveFileInfo | null>(null);
 
+  // File input ref for JSON file restore
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const isAdmin = currentUser.role === 'admin';
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
 
   // Initialize auth state
   useEffect(() => {
@@ -172,12 +180,11 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
     setAccessToken(null);
     setGoogleUser(null);
     setFolderStatus(null);
-    setErrorMessage('Sesi Google Drive telah berakhir (401). Silakan klik "Hubungkan Akun Google" untuk masuk kembali.');
+    setErrorMessage('Sesi Google Drive telah berakhir (401). Silakan klik "Hubungkan Akun Google" untuk menyambung kembali.');
   };
 
   /**
    * Handle Google Login
-   * Mengembalikan token dan user jika berhasil, atau null jika gagal/dibatalkan.
    */
   const handleGoogleLogin = async (): Promise<{ user: any; accessToken: string } | null> => {
     setIsAuthenticating(true);
@@ -217,15 +224,12 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
   };
 
   /**
-   * SINKRONISASI NORMAL (MERGE & UPDATE)
-   * Berlaku untuk seluruh pengguna (Penguji & Admin).
-   * Data lama tidak dihapus, hanya diperbarui jika ada revisi terbaru.
+   * SINKRONISASI NORMAL (MERGE & UPDATE) VIA GOOGLE DRIVE
    */
   const handleMergeSync = async () => {
     let currentToken = accessToken;
     let currentUserEmail = googleUser?.email;
 
-    // Jika belum login, jalankan login terlebih dahulu dan lanjutkan otomatis jika berhasil
     if (!currentToken) {
       const loginResult = await handleGoogleLogin();
       if (!loginResult) return;
@@ -246,7 +250,6 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
         settings,
       };
 
-      // 1. Cari file sinkronisasi utama
       const existingFile = await findSyncFile(currentToken, DEFAULT_DRIVE_FOLDER_ID);
 
       let cloudData: Partial<AppSyncPayload> = {};
@@ -257,7 +260,6 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
         setSyncStatusMessage('Membuat database awal di Google Drive...');
       }
 
-      // 2. Lakukan penggabungan cerdas (Merge & Update) dengan resolusi ID lintas perangkat
       const mergeResult = mergeAppData(
         localData,
         cloudData,
@@ -265,7 +267,6 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
         currentUserEmail
       );
 
-      // 3. Simpan data hasil merge kembali ke Google Drive
       setSyncStatusMessage('Menyimpan hasil sinkronisasi ke Google Drive...');
       if (existingFile) {
         await updateDriveFileContent(currentToken, existingFile.id, mergeResult.mergedData);
@@ -278,7 +279,6 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
         );
       }
 
-      // 4. Perbarui state lokal aplikasi
       onApplySyncData({
         peserta: mergeResult.mergedData.peserta,
         penguji: mergeResult.mergedData.penguji,
@@ -295,7 +295,6 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
           `${mergeResult.stats.totalPenilaian} berkas nilai tersimpan.`
       );
 
-      // Segarkan daftar berkas
       fetchDriveFiles(currentToken);
     } catch (err: any) {
       console.error('Merge sync error:', err);
@@ -311,7 +310,6 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
 
   /**
    * SINKRONISASI PENYESUAIAN PENGHAPUSAN (KHUSUS ADMIN)
-   * Data di Google Drive langsung diselaraskan dengan data aktif admin saat ini.
    */
   const handleExecuteAdminDeletionSync = async () => {
     let currentToken = accessToken;
@@ -379,7 +377,7 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
   };
 
   /**
-   * BUAT SNAPSHOT CADANGAN BARU
+   * BUAT SNAPSHOT CADANGAN BARU DI DRIVE
    */
   const handleCreateSnapshotBackup = async () => {
     let currentToken = accessToken;
@@ -481,6 +479,96 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
     }
   };
 
+  /**
+   * UNDUH FILE CADANGAN JSON LOKAL (DAPAT DISIMPAN KE FOLDER DRIVE)
+   */
+  const handleDownloadBackupJson = () => {
+    try {
+      const payload: AppSyncPayload = {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        syncedBy: {
+          username: currentUser.username,
+          role: currentUser.role,
+          displayName: currentUser.displayName,
+          googleEmail: googleUser?.email,
+        },
+        peserta: pesertaList,
+        penguji: pengujiList,
+        kelompok: kelompokList,
+        penilaian: penilaianMap,
+        settings,
+      };
+
+      const jsonStr = JSON.stringify(payload, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = SYNC_FILE_NAME;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setSyncStatusMessage(`Berkas cadangan "${SYNC_FILE_NAME}" berhasil diunduh.`);
+    } catch (err: any) {
+      setErrorMessage(`Gagal mengunduh berkas: ${err?.message}`);
+    }
+  };
+
+  /**
+   * UNGGAH & GABUNGKAN (MERGE & UPDATE) DARI FILE JSON
+   */
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const importedData: Partial<AppSyncPayload> = JSON.parse(text);
+
+      if (!importedData || !Array.isArray(importedData.peserta)) {
+        throw new Error('Format berkas JSON tidak sesuai struktur data Pramuka Garuda.');
+      }
+
+      const localData = {
+        peserta: pesertaList,
+        penguji: pengujiList,
+        kelompok: kelompokList,
+        penilaian: penilaianMap,
+        settings,
+      };
+
+      const mergeResult = mergeAppData(
+        localData,
+        importedData,
+        currentUser,
+        importedData.syncedBy?.googleEmail
+      );
+
+      onApplySyncData({
+        peserta: mergeResult.mergedData.peserta,
+        penguji: mergeResult.mergedData.penguji,
+        kelompok: mergeResult.mergedData.kelompok,
+        penilaian: mergeResult.mergedData.penilaian,
+        settings: mergeResult.mergedData.settings,
+      });
+
+      setLastSyncResult(mergeResult.stats);
+      setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+      setSyncStatusMessage(
+        `Penggabungan Berkas "${file.name}" Berhasil! Total ${mergeResult.stats.totalPeserta} peserta ` +
+          `(${mergeResult.stats.pesertaAddedFromCloud} baru, ${mergeResult.stats.pesertaUpdatedFromCloud} diperbarui), ` +
+          `${mergeResult.stats.totalPenilaian} nilai tersimpan.`
+      );
+    } catch (err: any) {
+      setErrorMessage(`Gagal membaca berkas cadangan: ${err?.message}`);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -503,7 +591,7 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
                   Sinkronisasi Data Google Drive
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-400 text-stone-950">
-                  Cloud Backup &amp; Restore
+                  Cloud &amp; Berkas
                 </span>
               </div>
               <p className="text-xs text-amber-200/90 mt-0.5">
@@ -519,6 +607,35 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
             className="p-2 hover:bg-white/15 rounded-xl transition-colors cursor-pointer text-stone-200 hover:text-white"
           >
             <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Tab Selector */}
+        <div className="px-6 pt-4 pb-0 bg-stone-50 border-b border-stone-200 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveSyncTab('cloud')}
+            className={`pb-3 px-3 text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-b-2 cursor-pointer ${
+              activeSyncTab === 'cloud'
+                ? 'border-amber-600 text-amber-900 font-extrabold'
+                : 'border-transparent text-stone-500 hover:text-stone-800'
+            }`}
+          >
+            <Cloud className="w-4 h-4" />
+            <span>Koneksi Google Drive (Otomatis)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSyncTab('file')}
+            className={`pb-3 px-3 text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-b-2 cursor-pointer ${
+              activeSyncTab === 'file'
+                ? 'border-amber-600 text-amber-900 font-extrabold'
+                : 'border-transparent text-stone-500 hover:text-stone-800'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>Berkas Cadangan JSON (Alternatif)</span>
           </button>
         </div>
 
@@ -584,66 +701,24 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
             </div>
           </div>
 
-          {/* Google Auth Status Box */}
-          <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              {googleUser?.photoURL ? (
-                <img
-                  src={googleUser.photoURL}
-                  alt={googleUser.displayName || 'Google User'}
-                  className="w-10 h-10 rounded-full border border-stone-300 shadow-xs"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-stone-200 flex items-center justify-center font-bold text-stone-600">
-                  {googleUser?.email ? googleUser.email[0].toUpperCase() : 'G'}
-                </div>
-              )}
-              <div>
-                <div className="text-xs font-bold text-stone-900 flex items-center gap-2">
-                  <span>
-                    {googleUser
-                      ? googleUser.displayName || 'Akun Google Terhubung'
-                      : 'Belum Terhubung ke Google Drive'}
-                  </span>
-                  {googleUser && (
-                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                      Terhubung
-                    </span>
-                  )}
-                </div>
-                <div className="text-[11px] text-stone-500 mt-0.5">
-                  {googleUser ? googleUser.email : 'Masuk untuk mengizinkan aplikasi menyinkronkan data'}
-                </div>
+          {/* IFrame helper notice if running inside preview frame */}
+          {isInIframe && (
+            <div className="p-3 rounded-2xl bg-blue-50/80 border border-blue-200 text-blue-900 text-xs flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-[11px] uppercase bg-blue-200 text-blue-900 px-1.5 py-0.5 rounded">Tips</span>
+                <span>Aplikasi sedang berjalan di dalam frame editor. Untuk login Google paling lancar, Anda dapat membuka di tab baru:</span>
               </div>
+              <a
+                href={window.location.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0"
+              >
+                <span>Buka di Tab Baru</span>
+                <ArrowUpRight className="w-3 h-3" />
+              </a>
             </div>
-
-            {googleUser ? (
-              <button
-                type="button"
-                onClick={handleGoogleLogout}
-                disabled={isSyncing}
-                className="px-3 py-1.5 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition-colors self-start sm:self-auto cursor-pointer"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Putus Akun</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleGoogleLogin}
-                disabled={isAuthenticating}
-                className="px-4 py-2 bg-white hover:bg-stone-100 text-stone-800 border border-stone-300 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-xs hover:shadow-sm self-start sm:self-auto cursor-pointer"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 48 48">
-                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-                </svg>
-                <span>{isAuthenticating ? 'Menghubungkan...' : 'Hubungkan Akun Google'}</span>
-              </button>
-            )}
-          </div>
+          )}
 
           {/* Feedback messages */}
           {syncStatusMessage && (
@@ -665,206 +740,355 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <div>{errorMessage}</div>
-                {!googleUser && (
+                <div className="mt-2 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={handleGoogleLogin}
-                    className="mt-2 px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer"
+                    className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer"
                   >
-                    Hubungkan Ulang Akun Google
+                    Hubungkan Ulang Google
                   </button>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => setActiveSyncTab('file')}
+                    className="px-3 py-1 bg-white border border-rose-300 text-rose-800 rounded-lg text-xs font-bold cursor-pointer"
+                  >
+                    Gunakan Mode Berkas JSON
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
-          {/* Action Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* 1. Merge & Update Sync Card (ALL USERS) */}
-            <div className="p-5 rounded-2xl bg-white border border-stone-200 shadow-xs flex flex-col justify-between hover:border-amber-400 transition-all">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-stone-900 font-extrabold text-sm sm:text-base">
-                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
-                    <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+          {/* TAB 1: CLOUD DIRECT GOOGLE DRIVE */}
+          {activeSyncTab === 'cloud' && (
+            <>
+              {/* Google Auth Status Box */}
+              <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  {googleUser?.photoURL ? (
+                    <img
+                      src={googleUser.photoURL}
+                      alt={googleUser.displayName || 'Google User'}
+                      className="w-10 h-10 rounded-full border border-stone-300 shadow-xs"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-stone-200 flex items-center justify-center font-bold text-stone-600">
+                      {googleUser?.email ? googleUser.email[0].toUpperCase() : 'G'}
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-xs font-bold text-stone-900 flex items-center gap-2">
+                      <span>
+                        {googleUser
+                          ? googleUser.displayName || 'Akun Google Terhubung'
+                          : 'Belum Terhubung ke Google Drive'}
+                      </span>
+                      {googleUser && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          Terhubung
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-stone-500 mt-0.5">
+                      {googleUser ? googleUser.email : 'Masuk untuk menyinkronkan data langsung ke cloud'}
+                    </div>
                   </div>
-                  <span>Sinkronisasi Merge &amp; Update</span>
                 </div>
-                <p className="text-xs text-stone-600 leading-relaxed">
-                  <strong>Direkomendasikan untuk seluruh pengguna.</strong> Menggabungkan data lokal &amp;
-                  Google Drive secara dua arah. <em>Data lama tidak akan terhapus</em>, sedangkan data baru
-                  dan revisi nilai akan otomatis diperbarui.
-                </p>
+
+                {googleUser ? (
+                  <button
+                    type="button"
+                    onClick={handleGoogleLogout}
+                    disabled={isSyncing}
+                    className="px-3 py-1.5 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition-colors self-start sm:self-auto cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Putus Akun</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    disabled={isAuthenticating}
+                    className="px-4 py-2 bg-white hover:bg-stone-100 text-stone-800 border border-stone-300 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-xs hover:shadow-sm self-start sm:self-auto cursor-pointer"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 48 48">
+                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                    </svg>
+                    <span>{isAuthenticating ? 'Menghubungkan...' : 'Hubungkan Akun Google'}</span>
+                  </button>
+                )}
               </div>
 
-              <div className="mt-4 pt-3 border-t border-stone-100">
+              {/* Action Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. Merge & Update Sync Card (ALL USERS) */}
+                <div className="p-5 rounded-2xl bg-white border border-stone-200 shadow-xs flex flex-col justify-between hover:border-amber-400 transition-all">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-stone-900 font-extrabold text-sm sm:text-base">
+                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                        <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                      </div>
+                      <span>Sinkronisasi Merge &amp; Update</span>
+                    </div>
+                    <p className="text-xs text-stone-600 leading-relaxed">
+                      <strong>Direkomendasikan untuk seluruh pengguna.</strong> Menggabungkan data lokal &amp;
+                      Google Drive secara dua arah. <em>Data lama tidak akan terhapus</em>, sedangkan data baru
+                      dan revisi nilai akan otomatis diperbarui.
+                    </p>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-stone-100">
+                    <button
+                      type="button"
+                      disabled={isSyncing}
+                      onClick={handleMergeSync}
+                      className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-700 active:scale-98 text-white font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-amber-600/20 transition-all cursor-pointer"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                      <span>{isSyncing ? 'Memproses Sinkronisasi...' : 'Mulai Sinkronisasi (Merge & Update)'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Admin Deletion Sync Card (STRICTLY ADMIN) */}
+                {isAdmin ? (
+                  <div className="p-5 rounded-2xl bg-rose-50/50 border border-rose-200 shadow-xs flex flex-col justify-between hover:border-rose-400 transition-all">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-rose-950 font-extrabold text-sm sm:text-base">
+                        <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center">
+                          <ShieldAlert className="w-4 h-4 text-rose-600" />
+                        </div>
+                        <span>Sinkronisasi Penghapusan (Admin)</span>
+                      </div>
+                      <p className="text-xs text-rose-900 leading-relaxed">
+                        <strong>Khusus Administrator:</strong> Menyelaraskan Google Drive persis seperti data aktif
+                        admin saat ini. Data peserta atau penilaian yang telah Anda hapus akan <em>disesuaikan
+                        (dihapus juga dari Google Drive)</em>.
+                      </p>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-rose-200">
+                      <button
+                        type="button"
+                        disabled={isSyncing}
+                        onClick={() => setConfirmAdminDeletionOpen(true)}
+                        className="w-full py-2.5 px-4 bg-rose-700 hover:bg-rose-800 active:scale-98 text-white font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-rose-700/20 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Sesuaikan Penghapusan ke Drive</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 shadow-xs flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-stone-800 font-extrabold text-sm sm:text-base">
+                        <div className="w-8 h-8 rounded-xl bg-stone-200 text-stone-600 flex items-center justify-center">
+                          <UserCheck className="w-4 h-4" />
+                        </div>
+                        <span>Peran Akun Penguji</span>
+                      </div>
+                      <p className="text-xs text-stone-500 leading-relaxed">
+                        Anda sedang login sebagai <strong>Penguji</strong>. Penguji dapat menyinkronkan nilai dan
+                        data peserta dengan mode Merge &amp; Update tanpa risiko menghapus data yang ada di server.
+                      </p>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-stone-100 text-right">
+                      <span className="text-[11px] font-semibold text-stone-400 italic">
+                        Hak penghapusan cloud dikelola oleh Admin
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick Snapshot Backup Button */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-stone-100/80 rounded-2xl border border-stone-200 gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Clock className="w-4 h-4 text-stone-500 shrink-0" />
+                  <span className="text-xs text-stone-700 font-medium">
+                    Simpan titik waktu snapshot terpisah di Google Drive:
+                  </span>
+                </div>
                 <button
                   type="button"
                   disabled={isSyncing}
-                  onClick={handleMergeSync}
-                  className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-700 active:scale-98 text-white font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-amber-600/20 transition-all cursor-pointer"
+                  onClick={handleCreateSnapshotBackup}
+                  className="px-3.5 py-1.5 bg-stone-800 hover:bg-stone-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0 self-start sm:self-auto"
                 >
-                  <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>{isSyncing ? 'Memproses Sinkronisasi...' : 'Mulai Sinkronisasi (Merge & Update)'}</span>
+                  <CloudUpload className="w-3.5 h-3.5" />
+                  <span>Buat Snapshot Cadangan</span>
                 </button>
               </div>
-            </div>
 
-            {/* 2. Admin Deletion Sync Card (STRICTLY ADMIN) */}
-            {isAdmin ? (
-              <div className="p-5 rounded-2xl bg-rose-50/50 border border-rose-200 shadow-xs flex flex-col justify-between hover:border-rose-400 transition-all">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-rose-950 font-extrabold text-sm sm:text-base">
-                    <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center">
-                      <ShieldAlert className="w-4 h-4 text-rose-600" />
-                    </div>
-                    <span>Sinkronisasi Penghapusan (Admin)</span>
+              {/* Drive Files History / Restore Section */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-xs uppercase tracking-wider text-stone-700 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-stone-500" />
+                    <span>Daftar Berkas Cadangan di Google Drive ({driveFiles.length})</span>
                   </div>
-                  <p className="text-xs text-rose-900 leading-relaxed">
-                    <strong>Khusus Administrator:</strong> Menyelaraskan Google Drive persis seperti data aktif
-                    admin saat ini. Data peserta atau penilaian yang telah Anda hapus akan <em>disesuaikan
-                    (dihapus juga dari Google Drive)</em>.
-                  </p>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-rose-200">
                   <button
                     type="button"
-                    disabled={isSyncing}
-                    onClick={() => setConfirmAdminDeletionOpen(true)}
-                    className="w-full py-2.5 px-4 bg-rose-700 hover:bg-rose-800 active:scale-98 text-white font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-rose-700/20 transition-all cursor-pointer"
+                    onClick={() => accessToken && fetchDriveFiles(accessToken)}
+                    disabled={isLoadingFiles || !accessToken}
+                    className="text-xs text-amber-700 hover:text-amber-900 font-bold flex items-center gap-1 cursor-pointer"
                   >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Sesuaikan Penghapusan ke Drive</span>
+                    <RefreshCw className={`w-3 h-3 ${isLoadingFiles ? 'animate-spin' : ''}`} />
+                    <span>Segarkan</span>
                   </button>
                 </div>
-              </div>
-            ) : (
-              <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 shadow-xs flex flex-col justify-between">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-stone-800 font-extrabold text-sm sm:text-base">
-                    <div className="w-8 h-8 rounded-xl bg-stone-200 text-stone-600 flex items-center justify-center">
-                      <UserCheck className="w-4 h-4" />
-                    </div>
-                    <span>Peran Akun Penguji</span>
+
+                {isLoadingFiles ? (
+                  <div className="p-6 text-center text-xs font-semibold text-stone-400 bg-stone-50 rounded-2xl">
+                    Memuat daftar file dari Google Drive...
                   </div>
-                  <p className="text-xs text-stone-500 leading-relaxed">
-                    Anda sedang login sebagai <strong>Penguji</strong>. Penguji dapat menyinkronkan nilai dan
-                    data peserta dengan mode Merge &amp; Update tanpa risiko menghapus data yang ada di server.
-                  </p>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-stone-100 text-right">
-                  <span className="text-[11px] font-semibold text-stone-400 italic">
-                    Hak penghapusan cloud dikelola oleh Admin
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Snapshot Backup Button */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-stone-100/80 rounded-2xl border border-stone-200 gap-3">
-            <div className="flex items-center gap-2.5">
-              <Clock className="w-4 h-4 text-stone-500 shrink-0" />
-              <span className="text-xs text-stone-700 font-medium">
-                Ingin menyimpan salinan titik waktu terpisah? Buat snapshot baru di Google Drive:
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled={isSyncing}
-              onClick={handleCreateSnapshotBackup}
-              className="px-3.5 py-1.5 bg-stone-800 hover:bg-stone-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0 self-start sm:self-auto"
-            >
-              <CloudUpload className="w-3.5 h-3.5" />
-              <span>Buat Snapshot Cadangan</span>
-            </button>
-          </div>
-
-          {/* Drive Files History / Restore Section */}
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <div className="font-bold text-xs uppercase tracking-wider text-stone-700 flex items-center gap-1.5">
-                <FileText className="w-4 h-4 text-stone-500" />
-                <span>Daftar Berkas Cadangan di Google Drive ({driveFiles.length})</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => accessToken && fetchDriveFiles(accessToken)}
-                disabled={isLoadingFiles || !accessToken}
-                className="text-xs text-amber-700 hover:text-amber-900 font-bold flex items-center gap-1 cursor-pointer"
-              >
-                <RefreshCw className={`w-3 h-3 ${isLoadingFiles ? 'animate-spin' : ''}`} />
-                <span>Segarkan</span>
-              </button>
-            </div>
-
-            {isLoadingFiles ? (
-              <div className="p-6 text-center text-xs font-semibold text-stone-400 bg-stone-50 rounded-2xl">
-                Memuat daftar file dari Google Drive...
-              </div>
-            ) : driveFiles.length === 0 ? (
-              <div className="p-6 text-center text-xs font-medium text-stone-400 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
-                Belum ada file cadangan yang ditemukan. Klik tombol Sinkronisasi untuk membuat file pertama.
-              </div>
-            ) : (
-              <div className="max-h-56 overflow-y-auto border border-stone-200 rounded-2xl divide-y divide-stone-100">
-                {driveFiles.map((f) => {
-                  const isMainSync = f.name === SYNC_FILE_NAME;
-                  return (
-                    <div
-                      key={f.id}
-                      className="p-3 flex items-center justify-between gap-3 hover:bg-stone-50/70 transition-colors"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
+                ) : driveFiles.length === 0 ? (
+                  <div className="p-6 text-center text-xs font-medium text-stone-400 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
+                    Belum ada file cadangan yang ditemukan. Klik tombol Sinkronisasi untuk membuat file pertama.
+                  </div>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto border border-stone-200 rounded-2xl divide-y divide-stone-100">
+                    {driveFiles.map((f) => {
+                      const isMainSync = f.name === SYNC_FILE_NAME;
+                      return (
                         <div
-                          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                            isMainSync
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-stone-200 text-stone-700'
-                          }`}
+                          key={f.id}
+                          className="p-3 flex items-center justify-between gap-3 hover:bg-stone-50/70 transition-colors"
                         >
-                          <FileCheck2 className="w-3.5 h-3.5" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-xs font-bold text-stone-900 truncate flex items-center gap-2">
-                            <span>{f.name}</span>
-                            {isMainSync && (
-                              <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-900 border border-amber-300">
-                                DATABASE UTAMA
-                              </span>
-                            )}
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                isMainSync
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-stone-200 text-stone-700'
+                              }`}
+                            >
+                              <FileCheck2 className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-stone-900 truncate flex items-center gap-2">
+                                <span>{f.name}</span>
+                                {isMainSync && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                                    DATABASE UTAMA
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-stone-500">
+                                Diperbarui: {new Date(f.modifiedTime).toLocaleString('id-ID')}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-[10px] text-stone-500">
-                            Diperbarui: {new Date(f.modifiedTime).toLocaleString('id-ID')}
-                          </div>
-                        </div>
-                      </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          disabled={isSyncing}
-                          onClick={() => setConfirmRestoreFile(f)}
-                          className="px-2.5 py-1 bg-stone-100 hover:bg-amber-100 text-stone-700 hover:text-amber-900 text-xs font-bold rounded-lg border border-stone-200 hover:border-amber-300 transition-colors cursor-pointer"
-                          title="Pulihkan data aplikasi dari file ini"
-                        >
-                          <CloudDownload className="w-3 h-3 inline mr-1" />
-                          Pulihkan
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              disabled={isSyncing}
+                              onClick={() => setConfirmRestoreFile(f)}
+                              className="px-2.5 py-1 bg-stone-100 hover:bg-amber-100 text-stone-700 hover:text-amber-900 text-xs font-bold rounded-lg border border-stone-200 hover:border-amber-300 transition-colors cursor-pointer"
+                              title="Pulihkan data aplikasi dari file ini"
+                            >
+                              <CloudDownload className="w-3 h-3 inline mr-1" />
+                              Pulihkan
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
+
+          {/* TAB 2: BERKAS CADANGAN MANDIRI (FILE BACKUP & MERGE) */}
+          {activeSyncTab === 'file' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs text-stone-700 leading-relaxed">
+                <div className="font-bold text-amber-950 mb-1 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-amber-700" />
+                  <span>Metode Berkas Cadangan (Bebas Hambatan Pop-up Browser)</span>
+                </div>
+                Metode ini memungkinkan Anda mencadangkan dan memulihkan database secara mandiri tanpa tergantung pada jendela otentikasi pop-up Google. Berkas yang diunduh dapat langsung Anda simpan atau bagikan ke folder Google Drive resmi.
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. Unduh Berkas JSON */}
+                <div className="p-5 rounded-2xl bg-white border border-stone-200 shadow-xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 font-extrabold text-sm text-stone-900 mb-1.5">
+                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                        <Download className="w-4 h-4" />
+                      </div>
+                      <span>Unduh File Cadangan Aplikasi</span>
+                    </div>
+                    <p className="text-xs text-stone-600 leading-relaxed">
+                      Unduh seluruh data peserta ({pesertaList.length}), penguji ({pengujiList.length}), kelompok, dan penilaian ({Object.keys(penilaianMap).length}) ke format JSON standar (<code className="font-bold text-amber-900">{SYNC_FILE_NAME}</code>).
+                    </p>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-stone-100">
+                    <button
+                      type="button"
+                      onClick={handleDownloadBackupJson}
+                      className="w-full py-2.5 px-4 bg-stone-900 hover:bg-black active:scale-98 text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Unduh Berkas {SYNC_FILE_NAME}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Unggah & Merge Berkas JSON */}
+                <div className="p-5 rounded-2xl bg-white border border-stone-200 shadow-xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 font-extrabold text-sm text-stone-900 mb-1.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <span>Gabungkan Berkas Cadangan (Merge)</span>
+                    </div>
+                    <p className="text-xs text-stone-600 leading-relaxed">
+                      Pilih berkas JSON dari komputer atau yang diunduh dari folder Google Drive. Data akan digabungkan secara cerdas (Merge &amp; Update) tanpa menghapus data lokal Anda.
+                    </p>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-stone-100">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".json"
+                      onChange={handleImportFile}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 active:scale-98 text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>Pilih Berkas JSON &amp; Gabungkan</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Modal Footer */}
         <div className="bg-stone-50 p-4 border-t border-stone-200 flex items-center justify-between shrink-0">
           <div className="text-[11px] text-stone-500">
-            Status: {googleUser ? `Terhubung (${googleUser.email || googleUser.displayName})` : 'Belum Terhubung'}
+            {activeSyncTab === 'cloud'
+              ? `Status: ${googleUser ? `Terhubung (${googleUser.email || googleUser.displayName})` : 'Belum Terhubung'}`
+              : `Total Lokal: ${pesertaList.length} Peserta, ${Object.keys(penilaianMap).length} Nilai`}
           </div>
 
           <button
