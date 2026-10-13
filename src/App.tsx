@@ -35,6 +35,7 @@ import { RekapitulasiView } from './components/RekapitulasiView';
 import { LembarPenilaianPrint } from './components/LembarPenilaianPrint';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginForm } from './components/LoginForm';
+import { GoogleDriveSyncModal } from './components/GoogleDriveSyncModal';
 import { LogOut, ShieldAlert } from 'lucide-react';
 import { extractGolonganName, getDefaultTKUForGolongan } from './utils/golongan';
 
@@ -60,6 +61,7 @@ export default function App() {
   });
   const [printPesertaId, setPrintPesertaId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDriveSyncOpen, setIsDriveSyncOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -306,6 +308,28 @@ export default function App() {
     );
   };
 
+  const handleApplyDriveSyncData = (data: {
+    peserta: Peserta[];
+    penguji: Penguji[];
+    kelompok: Kelompok[];
+    penilaian: Record<string, PenilaianPeserta>;
+    settings?: AppSettings;
+  }) => {
+    setPesertaList(data.peserta);
+    setPengujiList(data.penguji);
+    setKelompokList(data.kelompok);
+    setPenilaianMap(data.penilaian);
+    if (data.settings) {
+      setSettings(data.settings);
+    }
+    if (
+      data.peserta.length > 0 &&
+      (!selectedPesertaId || !data.peserta.some((p) => p.id === selectedPesertaId))
+    ) {
+      setSelectedPesertaId(data.peserta[0].id);
+    }
+  };
+
   // If user is not logged in, show Login Screen
   if (!currentUser) {
     return (
@@ -364,6 +388,7 @@ export default function App() {
             setIsSettingsOpen(true);
           }
         }}
+        onOpenDriveSync={() => setIsDriveSyncOpen(true)}
         mobileOpen={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}
       />
@@ -381,6 +406,7 @@ export default function App() {
               setIsSettingsOpen(true);
             }
           }}
+          onOpenDriveSync={() => setIsDriveSyncOpen(true)}
         />
 
         {/* Main Content Area (hidden during print when printPesertaId modal is active) */}
@@ -537,6 +563,21 @@ export default function App() {
           onSaveSettings={handleSaveSettings}
           onResetDefault={handleResetData}
           onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
+
+      {/* Google Drive Backup & Restore Sync Modal (All users: Merge & Update, Admin: Deletion Sync) */}
+      {isDriveSyncOpen && (
+        <GoogleDriveSyncModal
+          isOpen={isDriveSyncOpen}
+          onClose={() => setIsDriveSyncOpen(false)}
+          currentUser={currentUser}
+          pesertaList={pesertaList}
+          pengujiList={pengujiList}
+          kelompokList={kelompokList}
+          penilaianMap={penilaianMap}
+          settings={settings}
+          onApplySyncData={handleApplyDriveSyncData}
         />
       )}
 

@@ -14,6 +14,8 @@ import {
   ShieldCheck,
   ChevronRight,
   ExternalLink,
+  Cloud,
+  FolderSync,
 } from 'lucide-react';
 import { PramukaBadge } from './PramukaBadge';
 import { AppSettings, AuthUser } from '../types';
@@ -93,6 +95,7 @@ interface SidebarProps {
   sudahDinilaiCount: number;
   currentUser?: AuthUser | null;
   onOpenSettings?: () => void;
+  onOpenDriveSync?: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
 }
@@ -105,6 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   sudahDinilaiCount,
   currentUser,
   onOpenSettings,
+  onOpenDriveSync,
   mobileOpen,
   onCloseMobile,
 }) => {
@@ -243,6 +247,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
           );
         })}
 
+        {/* Cloud Sync section for ALL users (Penguji & Admin) */}
+        {onOpenDriveSync && (
+          <div className="pt-3 mt-3 border-t border-stone-800">
+            <div className="px-3 pb-2 text-[10px] font-bold text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+              <Cloud className="w-3 h-3 text-amber-400" />
+              <span>Sinkronisasi Cloud</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onOpenDriveSync();
+                onCloseMobile();
+              }}
+              className="w-full px-3.5 py-2.5 rounded-xl text-left font-semibold text-xs sm:text-sm flex items-center gap-3 text-amber-200 hover:text-white bg-amber-950/30 hover:bg-amber-950/60 border border-amber-600/30 transition-all cursor-pointer group"
+            >
+              <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 group-hover:scale-105 transition-transform">
+                <FolderSync className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="leading-tight font-bold text-white flex items-center gap-1.5">
+                  <span>Google Drive</span>
+                </div>
+                <div className="text-[10px] text-amber-300/80 font-normal">
+                  Merge &amp; Update Cadangan
+                </div>
+              </div>
+            </button>
+          </div>
+        )}
+
         {/* Settings button in sidebar for admin */}
         {!isPenguji && onOpenSettings && (
           <div className="pt-3 mt-3 border-t border-stone-800">
@@ -317,6 +351,7 @@ interface TopHeaderProps {
   onOpenMobileMenu: () => void;
   onTriggerLogout: () => void;
   onOpenSettings?: () => void;
+  onOpenDriveSync?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -326,6 +361,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenMobileMenu,
   onTriggerLogout,
   onOpenSettings,
+  onOpenDriveSync,
 }) => {
   const getTabTitle = (tab: NavTab) => {
     switch (tab) {
@@ -407,6 +443,19 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Google Drive Cloud Sync Button for ALL users */}
+            {onOpenDriveSync && (
+              <button
+                type="button"
+                onClick={onOpenDriveSync}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 active:scale-95 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center gap-1.5 border border-amber-500/30 transition-all cursor-pointer shadow-xs"
+                title="Sinkronisasi Data ke Google Drive (Merge & Update)"
+              >
+                <Cloud className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Drive Sync</span>
+              </button>
             )}
 
             {/* Admin Settings Button (optional quick button in header) */}

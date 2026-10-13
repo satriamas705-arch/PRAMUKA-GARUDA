@@ -201,7 +201,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                     required
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="admin / penguji"
+                    placeholder={activeTab === 'admin' ? 'Masukkan username' : 'penguji'}
                     className="w-full pl-10 pr-4 py-2.5 bg-stone-50 border border-stone-300 rounded-xl text-sm font-semibold text-stone-900 focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-none transition-all"
                   />
                 </div>
